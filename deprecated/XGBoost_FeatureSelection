@@ -1,0 +1,67 @@
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, roc_auc_score, accuracy_score
+from xgboost import XGBClassifier
+from imblearn.over_sampling import SMOTE
+from sklearn.utils.class_weight import compute_class_weight
+
+# Load your cleaned dataset
+train_data = pd.read_csv("cleaned_train.csv")  # Replace with the correct path
+
+# Prepare features (X) and target variable (y)
+X = train_data.drop(columns=["physical_part_id"], errors="ignore")  # Drop irrelevant columns
+y = train_data["status_OK"].apply(lambda x: 1 if x == "TRUE" else 0)  # Convert status to binary
+
+# Step 1: Stratified Sampling
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+
+# Check class distribution after stratification
+print("Training Set Distribution:\n", y_train.value_counts(normalize=True))
+print("Test Set Distribution:\n", y_test.value_counts(normalize=True))
+
+# Step 2: Apply SMOTE for Oversampling
+smote = SMOTE(random_state=42)
+X_train_balanced, y_train_balanced = smote.fit_resample(X_train, y_train)
+
+# Check class distribution after balancing
+print("Balanced Training Set Distribution:\n", y_train_balanced.value_counts())
+
+# Step 3: Compute Class Weights
+class_weights = compute_class_weight(
+    class_weight="balanced",
+    classes=[0, 1],
+    y=y_train
+)
+print("Class Weights:", class_weights)
+
+# Step 4: Train XGBoost Model with Class Weights
+model = XGBClassifier(
+    n_estimators=100,
+    learning_rate=0.1,
+    max_depth=6,
+    random_state=42,
+    scale_pos_weight=class_weights[1] / class_weights[0]  # Class weight ratio
+)
+model.fit(X_train_balanced, y_train_balanced)
+
+# Step 5: Evaluate the Model
+# Predict on the test set
+y_pred = model.predict(X_test)
+y_pred_proba = model.predict_proba(X_test)[:, 1]
+
+# Metrics
+print("\nAccuracy:", accuracy_score(y_test, y_pred))
+print("\nClassification Report:\n", classification_report(y_test, y_pred))
+print("\nROC-AUC Score:", roc_auc_score(y_test, y_pred_proba))
+
+# Step 6: Feature Importance
+from xgboost import plot_importance
+import matplotlib.pyplot as plt
+
+# Plot feature importance
+plt.figure(figsize=(12, 8))
+plot_importance(model, importance_type="gain", max_num_features=10)
+plt.title("Top 10 Feature Importances")
+plt.show()
